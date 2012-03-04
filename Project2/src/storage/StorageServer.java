@@ -16,9 +16,8 @@ import naming.*;
  */
 public class StorageServer implements Storage, Command
 {
-    private Skeleton<Storage> storageSkeleton;
-    private Skeleton<Command> commandSkeleton;
-    private Path[] files;
+    private Skeleton storageSkeleton;
+    private Skeleton commandSkeleton;
     private File root;
 	
 	/** Creates a storage server, given a directory on the local filesystem, and
@@ -47,13 +46,6 @@ public class StorageServer implements Storage, Command
         
         InetSocketAddress commandAddr = new InetSocketAddress(command_port);
         this.commandSkeleton = new Skeleton(Command.class, commandAddr);
-
-        try {
-			this.files = Path.list(root);
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
     }
 
     /** Creats a storage server, given a directory on the local filesystem.
@@ -102,11 +94,10 @@ public class StorageServer implements Storage, Command
         
         Command commandStub = Stub.create(Command.class, this.commandSkeleton, hostname);
         
-    	Path[] dupList = naming_server.register(storageStub, commandStub, this.files);
+    	Path[] dupList = naming_server.register(storageStub, commandStub, Path.list(this.root));
     	
     	for (Path p : dupList){
-    		System.out.println("deleting node " + p.toString());
-    		p.toFile(this.root).delete();
+    		this.delete(p);
     	}
     	
     	pruneDirectories(this.root);
@@ -141,7 +132,10 @@ public class StorageServer implements Storage, Command
      */
     public void stop()
     {
-        throw new UnsupportedOperationException("not implemented");
+    	this.commandSkeleton.stop();
+    	this.storageSkeleton.stop();
+    	
+    	this.stopped(null);
     }
 
     /** Called when the storage server has shut down.
@@ -157,7 +151,19 @@ public class StorageServer implements Storage, Command
     @Override
     public synchronized long size(Path file) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	File f = file.toFile(this.root);
+    	
+    	if (!f.exists()){
+    		throw new FileNotFoundException();
+    	}
+    	
+    	long size = f.length();
+    	
+    	if (size == 0L){
+    		throw new FileNotFoundException();
+    	}
+    	
+    	return size;
     }
 
     @Override
@@ -178,13 +184,20 @@ public class StorageServer implements Storage, Command
     @Override
     public synchronized boolean create(Path file)
     {
-        throw new UnsupportedOperationException("not implemented");
+        File f = file.toFile(this.root);
+        try {
+			return f.createNewFile();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+        return false;
     }
 
     @Override
     public synchronized boolean delete(Path path)
     {
-        throw new UnsupportedOperationException("not implemented");
+    	return path.toFile(this.root).delete();
     }
 
     @Override

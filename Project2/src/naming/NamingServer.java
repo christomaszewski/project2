@@ -152,7 +152,10 @@ public class NamingServer implements Service, Registration
     @Override
     public Storage getStorage(Path file) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	if (!this.directoryStructure.containsKey(file)){
+    		throw new FileNotFoundException();
+    	}
+        return this.directoryStructure.get(file).get(0);
     }
 
     // The method register is documented in Registration.java.

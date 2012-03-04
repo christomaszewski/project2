@@ -70,9 +70,6 @@ public class RegistrationTest extends StorageTest
                                  e);
         }
 
-        for (Path p : listed){
-        	System.out.println(p.toString());
-        }
         
         if(!TestUtil.sameElements(listed, remaining_files))
         {
