@@ -42,10 +42,10 @@ public class StorageServer implements Storage, Command
         }
         this.root = root;
         InetSocketAddress storageAddr = new InetSocketAddress(client_port);
-        this.storageSkeleton = new Skeleton(Storage.class, storageAddr);
+        this.storageSkeleton = new Skeleton(Storage.class, this, storageAddr);
         
         InetSocketAddress commandAddr = new InetSocketAddress(command_port);
-        this.commandSkeleton = new Skeleton(Command.class, commandAddr);
+        this.commandSkeleton = new Skeleton(Command.class, this, commandAddr);
     }
 
     /** Creats a storage server, given a directory on the local filesystem.
@@ -153,15 +153,11 @@ public class StorageServer implements Storage, Command
     {
     	File f = file.toFile(this.root);
     	
-    	if (!f.exists()){
+    	if (!f.exists() || f.isDirectory()){
     		throw new FileNotFoundException();
     	}
     	
     	long size = f.length();
-    	
-    	if (size == 0L){
-    		throw new FileNotFoundException();
-    	}
     	
     	return size;
     }
@@ -170,7 +166,11 @@ public class StorageServer implements Storage, Command
     public synchronized byte[] read(Path file, long offset, int length)
         throws FileNotFoundException, IOException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	FileInputStream reader = new FileInputStream(file.toFile(this.root));
+    	byte[] data = new byte[length];
+    	reader.read(data, (int)offset, length);
+    	
+    	return data;
     }
 
     @Override
