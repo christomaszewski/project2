@@ -19,6 +19,7 @@ public class StorageServer implements Storage, Command
     private Skeleton<Storage> storageSkeleton;
     private Skeleton<Command> commandSkeleton;
     private Path[] files;
+    private File root;
 	
 	/** Creates a storage server, given a directory on the local filesystem, and
         ports to use for the client and command interfaces.
@@ -40,6 +41,7 @@ public class StorageServer implements Storage, Command
         if (root == null){
         	throw new NullPointerException();
         }
+        this.root = root;
         InetSocketAddress storageAddr = new InetSocketAddress(client_port);
         this.storageSkeleton = new Skeleton(Storage.class, storageAddr);
         
@@ -100,7 +102,36 @@ public class StorageServer implements Storage, Command
         
         Command commandStub = Stub.create(Command.class, this.commandSkeleton, hostname);
         
-    	naming_server.register(storageStub, commandStub, this.files);
+    	Path[] dupList = naming_server.register(storageStub, commandStub, this.files);
+    	
+    	for (Path p : dupList){
+    		System.out.println("deleting node " + p.toString());
+    		p.toFile(this.root).delete();
+    	}
+    	
+    	pruneDirectories(this.root);
+    	
+    	
+    }
+    
+    private boolean pruneDirectories(File node){
+    	boolean safeToDelete = true;
+    	
+    	File[] directoryListing = node.listFiles();
+    	
+    	for (File f : directoryListing){
+    		if (f.isDirectory()){
+    			safeToDelete = safeToDelete && pruneDirectories(f);
+    		} else {
+    			safeToDelete = false;
+    		}
+    	}
+    	
+    	if (safeToDelete){
+    		node.delete();
+    	}
+    	
+    	return safeToDelete;
     }
 
     /** Stops the storage server.

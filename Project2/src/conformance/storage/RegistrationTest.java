@@ -70,6 +70,10 @@ public class RegistrationTest extends StorageTest
                                  e);
         }
 
+        for (Path p : listed){
+        	System.out.println(p.toString());
+        }
+        
         if(!TestUtil.sameElements(listed, remaining_files))
         {
             throw new TestFailed("storage server did not remove correct " +
@@ -79,6 +83,7 @@ public class RegistrationTest extends StorageTest
         // Check that empty directories have been pruned.
         File    pruned = new File(directory.root(), "prune");
 
+        
         if(pruned.exists())
         {
             throw new TestFailed("storage server did not prune directories " +

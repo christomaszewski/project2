@@ -44,6 +44,7 @@ public class NamingServer implements Service, Registration
 {
     Skeleton<Service> service;
     Skeleton<Registration> registration;
+    HashMap<Path, List<Storage>> directoryStructure;
 	
 	/** Creates the naming server object.
 
@@ -52,6 +53,7 @@ public class NamingServer implements Service, Registration
      */
     public NamingServer()
     {
+    	this.directoryStructure = new HashMap<Path, List<Storage>>();
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
 		this.service = new Skeleton(Service.class, serviceAddr);
 
@@ -158,6 +160,20 @@ public class NamingServer implements Service, Registration
     public Path[] register(Storage client_stub, Command command_stub,
                            Path[] files)
     {
-        throw new UnsupportedOperationException("not implemented");
+    	ArrayList<Path> filesToDelete = new ArrayList<Path>();
+    	for (Path p : files){
+    		if (this.directoryStructure.containsKey(p)){
+    			filesToDelete.add(p);
+    		} else {
+    			ArrayList<Storage> storageList = new ArrayList<Storage>();
+    			storageList.add(client_stub);
+    			this.directoryStructure.put(p, storageList);
+    		}
+    	}
+    	
+    	Path[] dupList = new Path[filesToDelete.size()];
+    	filesToDelete.toArray(dupList);
+
+    	return dupList;
     }
 }
