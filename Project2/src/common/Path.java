@@ -300,4 +300,9 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
         
     	return sb.toString();
     }
+    
+    public String getFileName(){
+    	return this.components.get(this.components.size()-1);
+    }
+    
 }

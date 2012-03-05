@@ -42,9 +42,11 @@ import storage.*;
  */
 public class NamingServer implements Service, Registration
 {
-    Skeleton<Service> service;
-    Skeleton<Registration> registration;
-    HashMap<Path, List<Storage>> directoryStructure;
+    Skeleton<Service> serviceSkeleton;
+    Skeleton<Registration> registrationSkeleton;
+    HashMap<Path, List<Storage>> storageMap;
+    HashMap<Storage, Command> registeredStorageServers;
+    HashMap<Path, HashSet<Path>> directoryStructure;
 	
 	/** Creates the naming server object.
 
@@ -53,12 +55,15 @@ public class NamingServer implements Service, Registration
      */
     public NamingServer()
     {
-    	this.directoryStructure = new HashMap<Path, List<Storage>>();
+    	this.storageMap = new HashMap<Path, List<Storage>>();
+    	this.directoryStructure = new HashMap<Path, HashSet<Path>>();
+    	this.registeredStorageServers = new HashMap<Storage, Command>();
+    	
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
-		this.service = new Skeleton(Service.class, this, serviceAddr);
+		this.serviceSkeleton = new Skeleton(Service.class, this, serviceAddr);
 
 		InetSocketAddress regAddr = new InetSocketAddress(NamingStubs.REGISTRATION_PORT);
-		this.registration = new Skeleton(Registration.class, this, regAddr);
+		this.registrationSkeleton = new Skeleton(Registration.class, this, regAddr);
     }
 
     /** Starts the naming server.
@@ -74,8 +79,8 @@ public class NamingServer implements Service, Registration
      */
     public synchronized void start() throws RMIException
     {
-        this.service.start();
-        this.registration.start();
+        this.serviceSkeleton.start();
+        this.registrationSkeleton.start();
     }
 
     /** Stops the naming server.
@@ -89,7 +94,10 @@ public class NamingServer implements Service, Registration
      */
     public void stop()
     {
-        throw new UnsupportedOperationException("not implemented");
+    	this.serviceSkeleton.stop();
+    	this.registrationSkeleton.stop();
+    	
+    	this.stopped(null);
     }
 
     /** Indicates that the server has completely shut down.
@@ -121,26 +129,97 @@ public class NamingServer implements Service, Registration
     @Override
     public boolean isDirectory(Path path) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+        if (path == null){
+        	throw new NullPointerException();
+        }
+        
+        boolean isDirectory = this.directoryStructure.containsKey(path);
+        boolean isFile = this.storageMap.containsKey(path);
+        
+        if(!isDirectory && !isFile){
+        	throw new FileNotFoundException();
+        }
+        
+        return isDirectory;
+        
     }
 
     @Override
     public String[] list(Path directory) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	if (!this.isDirectory(directory)){
+    		throw new FileNotFoundException();
+    	}
+    	
+    	HashSet<Path> pathSet = this.directoryStructure.get(directory);
+    	
+    	
+    	Path[] listing = new Path[pathSet.size()];
+    	pathSet.toArray(listing);
+    	
+    	String[] directoryListing = new String[listing.length];
+
+    	System.out.println("number of files in directory " + listing.length);
+    	for (int i = 0; i < listing.length; i++){
+    		directoryListing[i] = listing[i].getFileName();
+    		System.out.println(listing[i].toString());
+    	}
+    	
+    	
+    	return directoryListing;
+    	
     }
 
     @Override
     public boolean createFile(Path file)
         throws RMIException, FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+        if(!file.isRoot() && !this.directoryStructure.containsKey(file.parent())){
+        	throw new FileNotFoundException();
+        }
+        
+        if(this.registeredStorageServers.isEmpty()){
+        	throw new IllegalStateException();
+        }
+        
+        if (!file.isRoot() && !this.directoryStructure.containsKey(file) && !this.storageMap.containsKey(file)){
+        	Collection<Storage> servers = this.registeredStorageServers.keySet();
+        	Storage[] storageServers = new Storage[servers.size()];
+        	servers.toArray(storageServers);
+        	int index  = (int)(storageServers.length*Math.random());
+        	Storage chosenStorageStub = storageServers[index];
+        	Command chosenCommandStub = this.registeredStorageServers.get(chosenStorageStub);
+        	
+        	boolean result = chosenCommandStub.create(file);
+        	
+        	if(result){
+        		updateDirectoryStructure(file);
+        		ArrayList<Storage> locations = new ArrayList<Storage>();
+        		locations.add(chosenStorageStub);
+        		this.storageMap.put(file, locations);
+        	}
+        	
+    		return result;
+    	}
+        
+        return false;
     }
 
     @Override
     public boolean createDirectory(Path directory) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory.parent())){
+    		throw new FileNotFoundException();
+    	}
+    	
+    	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory) && !this.storageMap.containsKey(directory)){
+    		System.out.println("Creating directory " + directory.toString());
+    		updateDirectoryStructure(directory);
+    		this.directoryStructure.put(directory, new HashSet<Path>());
+    		return true;
+    	}
+    	
+    	return false;
     }
 
     @Override
@@ -152,10 +231,10 @@ public class NamingServer implements Service, Registration
     @Override
     public Storage getStorage(Path file) throws FileNotFoundException
     {
-    	if (!this.directoryStructure.containsKey(file)){
+    	if (!this.storageMap.containsKey(file)){
     		throw new FileNotFoundException();
     	}
-        return this.directoryStructure.get(file).get(0);
+        return this.storageMap.get(file).get(0);
     }
 
     // The method register is documented in Registration.java.
@@ -163,14 +242,31 @@ public class NamingServer implements Service, Registration
     public Path[] register(Storage client_stub, Command command_stub,
                            Path[] files)
     {
+    	if (client_stub == null || command_stub == null || files == null){
+    		throw new NullPointerException();
+    	} 
+    	
+    	if (this.registeredStorageServers.containsKey(client_stub)){
+    		throw new IllegalStateException();
+    	} else {
+    		this.registeredStorageServers.put(client_stub, command_stub);
+    	}
+    	
     	ArrayList<Path> filesToDelete = new ArrayList<Path>();
     	for (Path p : files){
-    		if (this.directoryStructure.containsKey(p)){
+    		if (p.isRoot()){
+    			//silently ignore this attempt to add root directory as a file
+    		} else if (this.directoryStructure.keySet().contains(p)){
+    			filesToDelete.add(p);
+    		} else if (this.storageMap.containsKey(p)){
     			filesToDelete.add(p);
     		} else {
     			ArrayList<Storage> storageList = new ArrayList<Storage>();
     			storageList.add(client_stub);
-    			this.directoryStructure.put(p, storageList);
+    			this.storageMap.put(p, storageList);
+    			
+    			updateDirectoryStructure(p);
+    			
     		}
     	}
     	
@@ -178,5 +274,25 @@ public class NamingServer implements Service, Registration
     	filesToDelete.toArray(dupList);
 
     	return dupList;
+    }
+    
+    private void updateDirectoryStructure(Path p){
+    	Path parent = p;
+		Path child = p;
+		
+		while (!child.isRoot()){
+			parent = child.parent();
+			HashSet<Path> directoryContents;
+			if(this.directoryStructure.containsKey(parent)){
+				directoryContents = this.directoryStructure.get(parent);
+				directoryContents.add(child);
+				this.directoryStructure.put(parent, directoryContents);
+			} else {
+				directoryContents = new HashSet<Path>();
+				directoryContents.add(child);
+				this.directoryStructure.put(parent, directoryContents);
+			}
+			child = parent;
+		}
     }
 }
