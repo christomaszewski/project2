@@ -70,7 +70,6 @@ public class PathTest extends Test
             // List the files in the directory.
             File    file = directory.root();
             Path[]  listed = Path.list(file);
-            
 
             // Check that the correct files have been listed.
             Path[]  expected = new Path[] {new Path("/file1"),
@@ -209,10 +208,9 @@ public class PathTest extends Test
             // Create a child path of the root.
             Path    child = new Path(root, "subdir");
 
-            if(!child.toString().equals("/subdir")){
-            	System.out.println(child.toString());
+            if(!child.toString().equals("/subdir"))
                 throw new TestFailed("string representation of path incorrect");
-            }
+
             // Create a root path by giving its string representation.
             Path    alternative_root = new Path("/");
 
@@ -225,10 +223,8 @@ public class PathTest extends Test
             // Create the same child path by giving its string representation.
             Path    alternative_child = new Path("/subdir");
 
-            if(!alternative_child.toString().equals("/subdir")){
-            	System.out.println(alternative_child.toString());
+            if(!alternative_child.toString().equals("/subdir"))
                 throw new TestFailed("string representation of path incorrect");
-            }
 
             // Create the same child path by a string representation with many
             // empty components.

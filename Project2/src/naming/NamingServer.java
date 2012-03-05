@@ -159,10 +159,8 @@ public class NamingServer implements Service, Registration
     	
     	String[] directoryListing = new String[listing.length];
 
-    	System.out.println("number of files in directory " + listing.length);
     	for (int i = 0; i < listing.length; i++){
     		directoryListing[i] = listing[i].getFileName();
-    		System.out.println(listing[i].toString());
     	}
     	
     	
@@ -213,7 +211,6 @@ public class NamingServer implements Service, Registration
     	}
     	
     	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory) && !this.storageMap.containsKey(directory)){
-    		System.out.println("Creating directory " + directory.toString());
     		updateDirectoryStructure(directory);
     		this.directoryStructure.put(directory, new HashSet<Path>());
     		return true;
@@ -231,6 +228,10 @@ public class NamingServer implements Service, Registration
     @Override
     public Storage getStorage(Path file) throws FileNotFoundException
     {
+    	if (file == null){
+    		throw new NullPointerException();
+    	}
+    	
     	if (!this.storageMap.containsKey(file)){
     		throw new FileNotFoundException();
     	}

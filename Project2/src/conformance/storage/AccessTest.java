@@ -274,8 +274,6 @@ public class AccessTest extends StorageTest
             throw new TestFailed("write method raised unexpected exception " +
                                  "when given negative offset", t);
         }
-        
-    
     }
 
     /** Tests <code>write</code> random access capability.
@@ -286,8 +284,6 @@ public class AccessTest extends StorageTest
     {
         // Write data outside the current bounds of read_write_file and check
         // the size of the resulting file.
-    	
-    	
         try
         {
             client_stub.write(read_write_file, write_data.length + 1,
