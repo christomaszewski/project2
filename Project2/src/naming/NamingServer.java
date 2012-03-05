@@ -1,12 +1,22 @@
 package naming;
 
-import java.io.*;
-import java.net.*;
-import java.util.*;
+import java.io.FileNotFoundException;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-import rmi.*;
-import common.*;
-import storage.*;
+import rmi.RMIException;
+import rmi.Skeleton;
+import storage.Command;
+import storage.Storage;
+
+import common.Path;
 
 /** Naming server.
 
@@ -44,9 +54,9 @@ public class NamingServer implements Service, Registration
 {
     Skeleton<Service> serviceSkeleton;
     Skeleton<Registration> registrationSkeleton;
-    HashMap<Path, List<Storage>> storageMap;
-    HashMap<Storage, Command> registeredStorageServers;
-    HashMap<Path, HashSet<Path>> directoryStructure;
+    ConcurrentHashMap<Path, List<Storage>> storageMap;
+    ConcurrentHashMap<Storage, Command> registeredStorageServers;
+    ConcurrentHashMap<Path, Set<Path>> directoryStructure;
 	
 	/** Creates the naming server object.
 
@@ -54,10 +64,10 @@ public class NamingServer implements Service, Registration
         The naming server is not started.
      */
     public NamingServer()
-    {
-    	this.storageMap = new HashMap<Path, List<Storage>>();
-    	this.directoryStructure = new HashMap<Path, HashSet<Path>>();
-    	this.registeredStorageServers = new HashMap<Storage, Command>();
+    {    	
+    	this.storageMap = new ConcurrentHashMap<Path, List<Storage>>();
+    	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
+    	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
     	
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
 		this.serviceSkeleton = new Skeleton(Service.class, this, serviceAddr);
@@ -151,7 +161,7 @@ public class NamingServer implements Service, Registration
     		throw new FileNotFoundException();
     	}
     	
-    	HashSet<Path> pathSet = this.directoryStructure.get(directory);
+    	Set<Path> pathSet = this.directoryStructure.get(directory);
     	
     	
     	Path[] listing = new Path[pathSet.size()];
@@ -262,7 +272,7 @@ public class NamingServer implements Service, Registration
     		} else if (this.storageMap.containsKey(p)){
     			filesToDelete.add(p);
     		} else {
-    			ArrayList<Storage> storageList = new ArrayList<Storage>();
+    			CopyOnWriteArrayList<Storage> storageList = new CopyOnWriteArrayList<Storage>();
     			storageList.add(client_stub);
     			this.storageMap.put(p, storageList);
     			
@@ -283,13 +293,13 @@ public class NamingServer implements Service, Registration
 		
 		while (!child.isRoot()){
 			parent = child.parent();
-			HashSet<Path> directoryContents;
+			Set<Path> directoryContents;
 			if(this.directoryStructure.containsKey(parent)){
 				directoryContents = this.directoryStructure.get(parent);
 				directoryContents.add(child);
 				this.directoryStructure.put(parent, directoryContents);
 			} else {
-				directoryContents = new HashSet<Path>();
+				directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
 				directoryContents.add(child);
 				this.directoryStructure.put(parent, directoryContents);
 			}

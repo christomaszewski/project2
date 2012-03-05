@@ -6,6 +6,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.StringTokenizer;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /** Distributed filesystem paths.
 
@@ -25,12 +26,12 @@ import java.util.StringTokenizer;
  */
 public class Path implements Iterable<String>, Comparable<Path>, Serializable
 {
-    private ArrayList<String> components;
+    private CopyOnWriteArrayList<String> components;
 	
 	/** Creates a new path which represents the root directory. */
     public Path()
     {
-        this.components = new ArrayList<String>();
+        this.components = new CopyOnWriteArrayList<String>();
     }
 
     /** Creates a new path by appending the given component to an existing path.
@@ -70,7 +71,7 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     		throw new IllegalArgumentException();
     	}
     	
-    	this.components = new ArrayList<String>();
+    	this.components = new CopyOnWriteArrayList<String>();
     	
         StringTokenizer strtok = new StringTokenizer(path, "/");
         while(strtok.hasMoreTokens()){
