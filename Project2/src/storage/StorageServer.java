@@ -19,7 +19,7 @@ public class StorageServer implements Storage, Command
     private Skeleton storageSkeleton;
     private Skeleton commandSkeleton;
     private File root;
-	
+
 	/** Creates a storage server, given a directory on the local filesystem, and
         ports to use for the client and command interfaces.
 
@@ -158,7 +158,6 @@ public class StorageServer implements Storage, Command
     	}
     	
     	long size = f.length();
-    	
     	return size;
     }
 
@@ -166,7 +165,14 @@ public class StorageServer implements Storage, Command
     public synchronized byte[] read(Path file, long offset, int length)
         throws FileNotFoundException, IOException
     {
-    	FileInputStream reader = new FileInputStream(file.toFile(this.root));
+    	File f = file.toFile(this.root);
+    	
+    	if(offset + length > f.length() || offset < 0 || length < 0) {
+    		throw new IndexOutOfBoundsException();
+    	}
+    	
+    	
+    	FileInputStream reader = new FileInputStream(f);
     	byte[] data = new byte[length];
     	reader.read(data, (int)offset, length);
     	
@@ -177,29 +183,74 @@ public class StorageServer implements Storage, Command
     public synchronized void write(Path file, long offset, byte[] data)
         throws FileNotFoundException, IOException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	File f = file.toFile(this.root);
+    	
+    	if (!f.exists() || f.isDirectory()){
+    		throw new FileNotFoundException();
+    	}
+    	
+    	if(offset > f.length()) {
+    		FileOutputStream writer = new FileOutputStream(f, true);
+    		while (f.length() < offset){
+    			writer.write(0);
+    		}
+        	writer.write(data);
+    	} else {
+    		FileOutputStream writer = new FileOutputStream(f);
+        	writer.write(data, (int)offset, data.length);
+    	}
+    	
     }
 
     // The following methods are documented in Command.java.
     @Override
     public synchronized boolean create(Path file)
     {
+    	if (file.isRoot()){
+    		return false;
+    	}
+    	
         File f = file.toFile(this.root);
+        Path parent = file.parent();
+        if (!parent.toFile(this.root).exists()){
+        	parent.toFile(this.root).mkdirs();
+        } 
+        
         try {
 			return f.createNewFile();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+        
         return false;
     }
 
     @Override
     public synchronized boolean delete(Path path)
     {
-    	return path.toFile(this.root).delete();
+    	if (path.isRoot()){
+    		return false;
+    	}
+    	
+    	return this.delete(path.toFile(this.root));
     }
 
+    private synchronized boolean delete(File file){
+    	boolean allFilesDeleted = true;
+    	if (file.isDirectory()){
+    		for (File f : file.listFiles()){
+    			allFilesDeleted = allFilesDeleted && this.delete(f);
+    		}
+    		if (allFilesDeleted){
+    			file.delete();
+    		}
+    	} else {
+    		allFilesDeleted = file.delete();
+    	}
+    	
+    	return allFilesDeleted;
+    }
+    
     @Override
     public synchronized boolean copy(Path file, Storage server)
         throws RMIException, FileNotFoundException, IOException

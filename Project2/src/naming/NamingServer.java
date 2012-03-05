@@ -55,10 +55,10 @@ public class NamingServer implements Service, Registration
     {
     	this.directoryStructure = new HashMap<Path, List<Storage>>();
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
-		this.service = new Skeleton(Service.class, serviceAddr);
+		this.service = new Skeleton(Service.class, this, serviceAddr);
 
 		InetSocketAddress regAddr = new InetSocketAddress(NamingStubs.REGISTRATION_PORT);
-		this.registration = new Skeleton(Registration.class, regAddr);
+		this.registration = new Skeleton(Registration.class, this, regAddr);
     }
 
     /** Starts the naming server.
