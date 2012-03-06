@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import rmi.RMIException;
 import rmi.Skeleton;
@@ -57,6 +58,7 @@ public class NamingServer implements Service, Registration
     ConcurrentHashMap<Path, List<Storage>> storageMap;
     ConcurrentHashMap<Storage, Command> registeredStorageServers;
     ConcurrentHashMap<Path, Set<Path>> directoryStructure;
+    ConcurrentHashMap<Path, ReentrantReadWriteLock> fileLocks;
 	
 	/** Creates the naming server object.
 
@@ -68,6 +70,7 @@ public class NamingServer implements Service, Registration
     	this.storageMap = new ConcurrentHashMap<Path, List<Storage>>();
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
     	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
+    	this.fileLocks = new ConcurrentHashMap<Path, ReentrantReadWriteLock>();
     	
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
 		this.serviceSkeleton = new Skeleton(Service.class, this, serviceAddr);
@@ -202,7 +205,7 @@ public class NamingServer implements Service, Registration
         	
         	if(result){
         		updateDirectoryStructure(file);
-        		ArrayList<Storage> locations = new ArrayList<Storage>();
+        		CopyOnWriteArrayList<Storage> locations = new CopyOnWriteArrayList<Storage>();
         		locations.add(chosenStorageStub);
         		this.storageMap.put(file, locations);
         	}
@@ -222,7 +225,8 @@ public class NamingServer implements Service, Registration
     	
     	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory) && !this.storageMap.containsKey(directory)){
     		updateDirectoryStructure(directory);
-    		this.directoryStructure.put(directory, new HashSet<Path>());
+    		Set<Path> directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+    		this.directoryStructure.put(directory, directoryContents);
     		return true;
     	}
     	
@@ -267,7 +271,7 @@ public class NamingServer implements Service, Registration
     	for (Path p : files){
     		if (p.isRoot()){
     			//silently ignore this attempt to add root directory as a file
-    		} else if (this.directoryStructure.keySet().contains(p)){
+    		} else if (this.directoryStructure.containsKey(p)){
     			filesToDelete.add(p);
     		} else if (this.storageMap.containsKey(p)){
     			filesToDelete.add(p);
@@ -291,15 +295,19 @@ public class NamingServer implements Service, Registration
     	Path parent = p;
 		Path child = p;
 		
+		if(!this.fileLocks.containsKey(child)){
+			this.fileLocks.put(child, new ReentrantReadWriteLock(true));
+		}
+		
 		while (!child.isRoot()){
 			parent = child.parent();
-			Set<Path> directoryContents;
+			if(!this.fileLocks.containsKey(parent)){
+				this.fileLocks.put(parent, new ReentrantReadWriteLock(true));
+			}
 			if(this.directoryStructure.containsKey(parent)){
-				directoryContents = this.directoryStructure.get(parent);
-				directoryContents.add(child);
-				this.directoryStructure.put(parent, directoryContents);
+				this.directoryStructure.get(parent).add(child);
 			} else {
-				directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+				Set<Path> directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
 				directoryContents.add(child);
 				this.directoryStructure.put(parent, directoryContents);
 			}
