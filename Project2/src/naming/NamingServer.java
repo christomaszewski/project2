@@ -5,12 +5,12 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import rmi.RMIException;
 import rmi.Skeleton;
@@ -58,8 +58,8 @@ public class NamingServer implements Service, Registration
     ConcurrentHashMap<Path, List<Storage>> storageMap;
     ConcurrentHashMap<Storage, Command> registeredStorageServers;
     ConcurrentHashMap<Path, Set<Path>> directoryStructure;
-    ConcurrentHashMap<Path, ReentrantReadWriteLock> fileLocks;
-	
+    ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
+
 	/** Creates the naming server object.
 
         <p>
@@ -70,7 +70,8 @@ public class NamingServer implements Service, Registration
     	this.storageMap = new ConcurrentHashMap<Path, List<Storage>>();
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
     	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
-    	this.fileLocks = new ConcurrentHashMap<Path, ReentrantReadWriteLock>();
+    	this.fileLocks = new ConcurrentHashMap<Path, ReadWriteLock>();
+    	fileLocks.put(new Path(), new ReadWriteLock());
     	
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
 		this.serviceSkeleton = new Skeleton(Service.class, this, serviceAddr);
@@ -130,13 +131,93 @@ public class NamingServer implements Service, Registration
     @Override
     public void lock(Path path, boolean exclusive) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+    	
+    	if(path == null) {
+    		throw new NullPointerException();
+    	}
+    	else if (!this.fileLocks.containsKey(path)) {
+
+    		throw new FileNotFoundException(); 
+    	}
+    	
+    	Path[] lockPaths = path.getSubPaths();
+    	
+    	for(int i = 0; i < lockPaths.length; i++) {
+    		
+    		//System.out.println("\n\n" + lockPaths[0].toString() + "\n\n");
+    		
+    		if(i == lockPaths.length - 1) {
+    			if(exclusive == true) {
+    				try {
+						fileLocks.get(lockPaths[i]).lockWrite();
+						
+						if(fileLocks.get(lockPaths[i]).getTotalReadRequests() >= 20) {
+							
+						}
+					
+    				} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+    			}
+    			else {
+    				try {
+						fileLocks.get(lockPaths[i]).lockRead();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+    			}
+    		}
+    		else {
+    			try {
+					fileLocks.get(lockPaths[i]).lockRead();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+    		}
+    	}
     }
 
     @Override
     public void unlock(Path path, boolean exclusive)
     {
-        throw new UnsupportedOperationException("not implemented");
+    	if(path == null) {
+    		throw new NullPointerException();
+    	}
+    	else if (!this.fileLocks.containsKey(path)) {
+    		throw new IllegalArgumentException(); 
+    	}
+    	
+    	Path[] lockPaths = path.getSubPaths();
+       	
+   
+    	
+    	for(int i = 0; i < lockPaths.length; i++) {
+    		
+    		//System.out.println("\n" + lockPaths[i].toString() + "\n");
+    		
+    		if(i == lockPaths.length - 1) {
+    			if(exclusive == true) {
+    				try {
+						fileLocks.get(lockPaths[i]).unlockWrite();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+    			}
+    			else {
+    				
+    				fileLocks.get(lockPaths[i]).unlockRead();
+    			
+    			}
+    		}
+    		else {
+    			fileLocks.get(lockPaths[i]).unlockRead();
+    		}
+    		
+    	}
     }
 
     @Override
@@ -236,7 +317,25 @@ public class NamingServer implements Service, Registration
     @Override
     public boolean delete(Path path) throws FileNotFoundException
     {
-        throw new UnsupportedOperationException("not implemented");
+        
+    	/*
+    	if(path == null) {
+    		throw new NullPointerException();
+    	}
+    	else if (!this.fileLocks.containsKey(path)) {
+
+    		throw new FileNotFoundException(); 
+    	}
+        
+        
+        
+        boolean deleted = registeredStorageServers.get(storageMap.get(path).get(0)).delete(path);
+        
+        return ;
+        */
+    	
+    	
+    	throw new UnsupportedOperationException("not implemented");
     }
 
     @Override
@@ -249,7 +348,10 @@ public class NamingServer implements Service, Registration
     	if (!this.storageMap.containsKey(file)){
     		throw new FileNotFoundException();
     	}
-        return this.storageMap.get(file).get(0);
+        
+    	int index = (int)(this.storageMap.get(file).size() * Math.random()); 
+    	
+    	return this.storageMap.get(file).get(index);
     }
 
     // The method register is documented in Registration.java.
@@ -294,15 +396,15 @@ public class NamingServer implements Service, Registration
     private void updateDirectoryStructure(Path p){
     	Path parent = p;
 		Path child = p;
-		
+
 		if(!this.fileLocks.containsKey(child)){
-			this.fileLocks.put(child, new ReentrantReadWriteLock(true));
+			this.fileLocks.put(child, new ReadWriteLock());
 		}
-		
+
 		while (!child.isRoot()){
 			parent = child.parent();
 			if(!this.fileLocks.containsKey(parent)){
-				this.fileLocks.put(parent, new ReentrantReadWriteLock(true));
+				this.fileLocks.put(parent, new ReadWriteLock());
 			}
 			if(this.directoryStructure.containsKey(parent)){
 				this.directoryStructure.get(parent).add(child);

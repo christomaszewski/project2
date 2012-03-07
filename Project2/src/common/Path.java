@@ -27,7 +27,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class Path implements Iterable<String>, Comparable<Path>, Serializable
 {
     private CopyOnWriteArrayList<String> components;
-	
+
 	/** Creates a new path which represents the root directory. */
     public Path()
     {
@@ -305,5 +305,31 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     public String getFileName(){
     	return this.components.get(this.components.size()-1);
     }
+    
+    public Path[] getSubPaths() {
+    		
+    	if (this.isRoot()){
+    		Path[] listing = new Path[1];
+    		listing[0] = this;
+    		return listing;
+    	}
+    	else {
+    	
+	    	Path[] listing = new Path[components.size() + 1];
+	    	listing[0] = new Path();
+	    	
+	    	StringBuilder sb = new StringBuilder();
+	    	for(int i = 0; i < components.size(); i++) {
+	    		sb.append("/");
+	    		sb.append(components.get(i));
+	    		listing[i + 1] = new Path(sb.toString()); 
+	    	}
+	    	
+	    	
+	    	return listing;
+    	}
+    	
+    }
+    
     
 }
