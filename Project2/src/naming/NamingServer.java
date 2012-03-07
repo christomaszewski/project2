@@ -50,12 +50,12 @@ import common.Path;
  */
 public class NamingServer implements Service, Registration
 {
-    Skeleton<Service> serviceSkeleton;
-    Skeleton<Registration> registrationSkeleton;
-    ConcurrentHashMap<Path, Set<Storage>> storageMap;
-    ConcurrentHashMap<Storage, Command> registeredStorageServers;
-    ConcurrentHashMap<Path, Set<Path>> directoryStructure;
-    ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
+    private Skeleton<Service> serviceSkeleton;
+    private Skeleton<Registration> registrationSkeleton;
+    private ConcurrentHashMap<Path, Set<Storage>> storageMap;
+    private ConcurrentHashMap<Storage, Command> registeredStorageServers;
+    private ConcurrentHashMap<Path, Set<Path>> directoryStructure;
+    private ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
 
 	/** Creates the naming server object.
 
@@ -205,15 +205,9 @@ public class NamingServer implements Service, Registration
     		Storage[] storageArray = new Storage[storageLocations.size()];
     		storageLocations.toArray(storageArray);
     		
-    		for (Storage s : storageArray){
-    			System.out.println(s);
-    		}
-    		
     		for (int i = 1; i<storageArray.length; i++){
     			Command commandStub = this.registeredStorageServers.get(storageArray[i]);
-    			System.out.println("storage stub " + storageArray[i]);
 
-    			System.out.println("command stub " + commandStub);
     			try {
 					commandStub.delete(path);
 	    			storageLocations.remove(storageArray[i]);
@@ -368,8 +362,6 @@ public class NamingServer implements Service, Registration
     @Override
     public boolean delete(Path path) throws FileNotFoundException
     {
-        
-    	/*
     	if(path == null) {
     		throw new NullPointerException();
     	}
@@ -377,16 +369,37 @@ public class NamingServer implements Service, Registration
 
     		throw new FileNotFoundException(); 
     	}
+        boolean deleted = false;
         
+        Set<Storage> storageLocations = this.registeredStorageServers.keySet();
+        for (Storage s : storageLocations){
+        	Command commandStub = this.registeredStorageServers.get(s);
+        	try {
+				deleted = commandStub.delete(path) || deleted;
+			} catch (RMIException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
         
-        
-        boolean deleted = registeredStorageServers.get(storageMap.get(path).get(0)).delete(path);
-        
-        return ;
-        */
+        deleteAll(path);
+    	this.directoryStructure.get(path.parent()).remove(path);
+
+        return deleted;
+    }
+    
+    private void deleteAll(Path path){
+    	if (!this.directoryStructure.containsKey(path)){
+        	this.storageMap.remove(path);
+        } else {
+        	Set<Path> directoryContents = this.directoryStructure.get(path);
+        	for (Path p : directoryContents){
+        		deleteAll(p);
+        	}
+        	this.directoryStructure.remove(path);
+        }
     	
-    	
-    	throw new UnsupportedOperationException("not implemented");
+    	this.fileLocks.remove(path);
     }
 
     @Override
