@@ -2,6 +2,7 @@ package storage;
 
 import java.io.*;
 import java.net.*;
+import java.util.Arrays;
 
 import common.*;
 import rmi.*;
@@ -19,6 +20,7 @@ public class StorageServer implements Storage, Command
     private Skeleton storageSkeleton;
     private Skeleton commandSkeleton;
     private File root;
+    private boolean ioExceptionThrown = false;
 
 	/** Creates a storage server, given a directory on the local filesystem, and
         ports to use for the client and command interfaces.
@@ -167,6 +169,10 @@ public class StorageServer implements Storage, Command
     {
     	File f = file.toFile(this.root);
     	
+    	if (!f.exists() || f.isDirectory()){
+    		throw new FileNotFoundException();
+    	}
+    	
     	if(offset + length > f.length() || offset < 0 || length < 0) {
     		throw new IndexOutOfBoundsException();
     	}
@@ -205,12 +211,13 @@ public class StorageServer implements Storage, Command
     // The following methods are documented in Command.java.
     @Override
     public synchronized boolean create(Path file)
-    {
+    {    	
     	if (file.isRoot()){
     		return false;
     	}
     	
         File f = file.toFile(this.root);
+        
         Path parent = file.parent();
         if (!parent.toFile(this.root).exists()){
         	parent.toFile(this.root).mkdirs();
@@ -219,7 +226,7 @@ public class StorageServer implements Storage, Command
         try {
 			return f.createNewFile();
 		} catch (IOException e) {
-			e.printStackTrace();
+			this.ioExceptionThrown = true;
 		}
         
         return false;
@@ -255,11 +262,19 @@ public class StorageServer implements Storage, Command
     public synchronized boolean copy(Path file, Storage server)
         throws RMIException, FileNotFoundException, IOException
     {
-    	boolean fileCreated = this.create(file);
     	long size = server.size(file);
     	byte[] data = server.read(file, 0, (int) size);
+    	
+    	this.ioExceptionThrown = false;
+    	this.create(file);
+    	if(this.ioExceptionThrown){
+    		throw new IOException();
+    	}
+    	
     	this.write(file, 0, data);
     	
-    	return fileCreated;
+    	byte[] localData = this.read(file, 0, (int)size);
+    	
+    	return Arrays.equals(data, localData);
     }
 }

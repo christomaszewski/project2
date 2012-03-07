@@ -5,12 +5,9 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import rmi.RMIException;
 import rmi.Skeleton;
@@ -55,7 +52,7 @@ public class NamingServer implements Service, Registration
 {
     Skeleton<Service> serviceSkeleton;
     Skeleton<Registration> registrationSkeleton;
-    ConcurrentHashMap<Path, List<Storage>> storageMap;
+    ConcurrentHashMap<Path, Set<Storage>> storageMap;
     ConcurrentHashMap<Storage, Command> registeredStorageServers;
     ConcurrentHashMap<Path, Set<Path>> directoryStructure;
     ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
@@ -67,7 +64,7 @@ public class NamingServer implements Service, Registration
      */
     public NamingServer()
     {    	
-    	this.storageMap = new ConcurrentHashMap<Path, List<Storage>>();
+    	this.storageMap = new ConcurrentHashMap<Path, Set<Storage>>();
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
     	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
     	this.fileLocks = new ConcurrentHashMap<Path, ReadWriteLock>();
@@ -151,9 +148,7 @@ public class NamingServer implements Service, Registration
     				try {
 						fileLocks.get(lockPaths[i]).lockWrite();
 						
-						if(fileLocks.get(lockPaths[i]).getTotalReadRequests() >= 20) {
-							
-						}
+						
 					
     				} catch (InterruptedException e) {
 						// TODO Auto-generated catch block
@@ -167,6 +162,9 @@ public class NamingServer implements Service, Registration
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
+    				
+    				
+    				
     			}
     		}
     		else {
@@ -178,6 +176,58 @@ public class NamingServer implements Service, Registration
 				}
     		}
     	}
+
+    	if(!this.directoryStructure.containsKey(path) && fileLocks.get(path).getTotalReadRequests() >= 20 && exclusive == false) {
+			Set<Storage> storageLocations = this.storageMap.get(path);
+			Set<Storage> storageServers = new HashSet<Storage>(this.registeredStorageServers.keySet());
+			storageServers.removeAll(storageLocations);
+			
+			Storage replicationTarget = getRandomElementFromSet(storageServers);
+			
+			if(replicationTarget != null){
+				Command replicationTargetCommand = this.registeredStorageServers.get(replicationTarget);
+				boolean result = false;
+				try{
+					result = replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
+				} catch (Exception e){}
+				
+				if (result == true){
+					storageLocations.add(replicationTarget);
+					this.fileLocks.get(path).resetReadCount();
+				}
+				
+			}
+			
+		}
+    	
+    	if(!path.isRoot() && !this.directoryStructure.containsKey(path) && this.storageMap.get(path).size()>1 && exclusive == true){
+    		Set<Storage> storageLocations = this.storageMap.get(path);    		
+    		Storage[] storageArray = new Storage[storageLocations.size()];
+    		storageLocations.toArray(storageArray);
+    		
+    		for (Storage s : storageArray){
+    			System.out.println(s);
+    		}
+    		
+    		for (int i = 1; i<storageArray.length; i++){
+    			Command commandStub = this.registeredStorageServers.get(storageArray[i]);
+    			System.out.println("storage stub " + storageArray[i]);
+
+    			System.out.println("command stub " + commandStub);
+    			try {
+					commandStub.delete(path);
+	    			storageLocations.remove(storageArray[i]);
+				} catch (RMIException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+    			
+    		}
+    		
+    		
+    	}
+    	
+    	
     }
 
     @Override
@@ -206,8 +256,9 @@ public class NamingServer implements Service, Registration
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-    			}
-    			else {
+    			} else {
+    				
+    				
     				
     				fileLocks.get(lockPaths[i]).unlockRead();
     			
@@ -286,9 +337,9 @@ public class NamingServer implements Service, Registration
         	
         	if(result){
         		updateDirectoryStructure(file);
-        		CopyOnWriteArrayList<Storage> locations = new CopyOnWriteArrayList<Storage>();
-        		locations.add(chosenStorageStub);
-        		this.storageMap.put(file, locations);
+        		Set<Storage> storageList = Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
+				storageList.add(chosenStorageStub);
+        		this.storageMap.put(file, storageList);
         	}
         	
     		return result;
@@ -349,9 +400,8 @@ public class NamingServer implements Service, Registration
     		throw new FileNotFoundException();
     	}
         
-    	int index = (int)(this.storageMap.get(file).size() * Math.random()); 
+    	return getRandomElementFromSet(this.storageMap.get(file));
     	
-    	return this.storageMap.get(file).get(index);
     }
 
     // The method register is documented in Registration.java.
@@ -378,8 +428,8 @@ public class NamingServer implements Service, Registration
     		} else if (this.storageMap.containsKey(p)){
     			filesToDelete.add(p);
     		} else {
-    			CopyOnWriteArrayList<Storage> storageList = new CopyOnWriteArrayList<Storage>();
-    			storageList.add(client_stub);
+    			Set<Storage> storageList = Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
+				storageList.add(client_stub);
     			this.storageMap.put(p, storageList);
     			
     			updateDirectoryStructure(p);
@@ -416,4 +466,18 @@ public class NamingServer implements Service, Registration
 			child = parent;
 		}
     }
+    
+    private <T> T getRandomElementFromSet(Set<T> set){
+    	if(set.isEmpty()){
+    		return null;
+    	}
+    	
+    	int index = (int)(set.size() * Math.random()); 
+    	
+    	Object[] array = new Object[set.size()];
+    	set.toArray(array);
+    	
+    	return (T)array[index];
+    }
+    
 }
