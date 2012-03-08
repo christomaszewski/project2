@@ -17,8 +17,8 @@ import naming.*;
  */
 public class StorageServer implements Storage, Command
 {
-    private Skeleton storageSkeleton;
-    private Skeleton commandSkeleton;
+    private Skeleton<Storage> storageSkeleton;
+    private Skeleton<Command> commandSkeleton;
     private File root;
     private boolean ioExceptionThrown = false;
 
@@ -44,10 +44,10 @@ public class StorageServer implements Storage, Command
         }
         this.root = root;
         InetSocketAddress storageAddr = new InetSocketAddress(client_port);
-        this.storageSkeleton = new Skeleton(Storage.class, this, storageAddr);
+        this.storageSkeleton = new GracefulSkeleton<Storage>(Storage.class, this, storageAddr);
         
         InetSocketAddress commandAddr = new InetSocketAddress(command_port);
-        this.commandSkeleton = new Skeleton(Command.class, this, commandAddr);
+        this.commandSkeleton = new GracefulSkeleton<Command>(Command.class, this, commandAddr);
     }
 
     /** Creats a storage server, given a directory on the local filesystem.
@@ -102,19 +102,17 @@ public class StorageServer implements Storage, Command
     		this.delete(p);
     	}
     	
-    	pruneDirectories(this.root);
-    	
-    	
+    	pruneEmptyDirectories(this.root);
     }
     
-    private boolean pruneDirectories(File node){
+    private boolean pruneEmptyDirectories(File node){
     	boolean safeToDelete = true;
     	
     	File[] directoryListing = node.listFiles();
     	
     	for (File f : directoryListing){
     		if (f.isDirectory()){
-    			safeToDelete = safeToDelete && pruneDirectories(f);
+    			safeToDelete = safeToDelete && pruneEmptyDirectories(f);
     		} else {
     			safeToDelete = false;
     		}
@@ -135,7 +133,20 @@ public class StorageServer implements Storage, Command
     public void stop()
     {
     	this.commandSkeleton.stop();
+    	synchronized(this.commandSkeleton){
+    		try {
+    			this.commandSkeleton.wait();
+    		} catch (InterruptedException e) {}
+    	}
+    	
+    	
+    	
     	this.storageSkeleton.stop();
+    	synchronized(this.storageSkeleton){
+	    	try {
+				this.storageSkeleton.wait();
+			} catch (InterruptedException e) {}
+    	}
     	
     	this.stopped(null);
     }
@@ -177,10 +188,10 @@ public class StorageServer implements Storage, Command
     		throw new IndexOutOfBoundsException();
     	}
     	
-    	
-    	FileInputStream reader = new FileInputStream(f);
     	byte[] data = new byte[length];
-    	reader.read(data, (int)offset, length);
+    	RandomAccessFile reader = new RandomAccessFile(f, "r");
+    	reader.seek(offset);
+    	reader.read(data, 0, length);
     	
     	return data;
     }
@@ -195,16 +206,15 @@ public class StorageServer implements Storage, Command
     		throw new FileNotFoundException();
     	}
     	
-    	if(offset > f.length()) {
-    		FileOutputStream writer = new FileOutputStream(f, true);
-    		while (f.length() < offset){
-    			writer.write(0);
-    		}
-        	writer.write(data);
-    	} else {
-    		FileOutputStream writer = new FileOutputStream(f);
-        	writer.write(data, (int)offset, data.length);
+    	if (offset < 0){
+    		throw new IndexOutOfBoundsException();
     	}
+    	
+    	RandomAccessFile writer = new RandomAccessFile(f,"rw");
+    	
+    	writer.seek(offset);
+    	writer.write(data);
+    	writer.close();
     	
     }
 
@@ -242,11 +252,11 @@ public class StorageServer implements Storage, Command
     	return this.delete(path.toFile(this.root));
     }
 
-    private synchronized boolean delete(File file){
+    private boolean delete(File file){
     	boolean allFilesDeleted = true;
     	if (file.isDirectory()){
     		for (File f : file.listFiles()){
-    			allFilesDeleted = allFilesDeleted && this.delete(f);
+    			allFilesDeleted = this.delete(f) && allFilesDeleted;
     		}
     		if (allFilesDeleted){
     			file.delete();
@@ -262,8 +272,9 @@ public class StorageServer implements Storage, Command
     public synchronized boolean copy(Path file, Storage server)
         throws RMIException, FileNotFoundException, IOException
     {
-    	long size = server.size(file);
-    	byte[] data = server.read(file, 0, (int) size);
+    	long size = server.size(file);    	
+    	
+    	this.delete(file.toFile(this.root));
     	
     	this.ioExceptionThrown = false;
     	this.create(file);
@@ -271,10 +282,20 @@ public class StorageServer implements Storage, Command
     		throw new IOException();
     	}
     	
-    	this.write(file, 0, data);
+    	long offset = 0;
+    	long bytesLeft = size;
+    	boolean writeSuccess = true;
+    	while(bytesLeft > 0){
+    		int bytesWritten = bytesLeft > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)(bytesLeft % Integer.MAX_VALUE);
+    		byte[] data = server.read(file, offset, bytesWritten);
+        	this.write(file, offset, data);
+        	byte[] localData = this.read(file, offset, bytesWritten);
+        	writeSuccess = writeSuccess && Arrays.equals(data, localData);
+        	offset += bytesWritten;
+        	bytesLeft -= bytesWritten;	
+    	}
     	
-    	byte[] localData = this.read(file, 0, (int)size);
     	
-    	return Arrays.equals(data, localData);
+    	return writeSuccess;
     }
 }

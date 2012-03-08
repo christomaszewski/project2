@@ -177,7 +177,8 @@ public class Put extends ClientApplication
         catch(ApplicationFailure e) { throw e; }
         catch(Throwable t)
         {
-            throw new ApplicationFailure("cannot transfer " + source +
+            t.printStackTrace();
+        	throw new ApplicationFailure("cannot transfer " + source +
                                          ": " + t.getMessage());
         }
         finally

@@ -254,9 +254,19 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     @Override
     public int compareTo(Path other)
     {
-        throw new UnsupportedOperationException("not implemented");
+    	int otherSize = other.getNumberOfComponents();
+    	
+    	if(this.components.size() != otherSize){
+    		return this.components.size()-otherSize;
+    	} else {
+    		return this.toString().compareTo(other.toString());
+    	}
     }
 
+    public int getNumberOfComponents(){
+    	return this.components.size();
+    }
+    
     /** Compares two paths for equality.
 
         <p>

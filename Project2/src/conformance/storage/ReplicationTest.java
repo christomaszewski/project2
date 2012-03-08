@@ -145,7 +145,7 @@ public class ReplicationTest extends StorageTest
 
         try
         {
-            client_stub.write(replace_path, 0, old_data);
+        	client_stub.write(replace_path, 0, old_data);
         }
         catch(Throwable t)
         {

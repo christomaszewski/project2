@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import rmi.GracefulSkeleton;
 import rmi.RMIException;
 import rmi.Skeleton;
 import storage.Command;
@@ -68,13 +69,13 @@ public class NamingServer implements Service, Registration
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
     	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
     	this.fileLocks = new ConcurrentHashMap<Path, ReadWriteLock>();
-    	fileLocks.put(new Path(), new ReadWriteLock());
+    	this.fileLocks.put(new Path(), new ReadWriteLock());
     	
     	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
-		this.serviceSkeleton = new Skeleton(Service.class, this, serviceAddr);
+		this.serviceSkeleton = new GracefulSkeleton<Service>(Service.class, this, serviceAddr);
 
 		InetSocketAddress regAddr = new InetSocketAddress(NamingStubs.REGISTRATION_PORT);
-		this.registrationSkeleton = new Skeleton(Registration.class, this, regAddr);
+		this.registrationSkeleton = new GracefulSkeleton<Registration>(Registration.class, this, regAddr);
     }
 
     /** Starts the naming server.
@@ -106,7 +107,24 @@ public class NamingServer implements Service, Registration
     public void stop()
     {
     	this.serviceSkeleton.stop();
+    	synchronized(this.serviceSkeleton){
+	    	try {
+				this.serviceSkeleton.wait();
+			} catch (InterruptedException e) {}
+    	}
+    	
     	this.registrationSkeleton.stop();
+    	synchronized(this.registrationSkeleton){
+    		try {
+    			this.registrationSkeleton.wait();
+    		} catch (InterruptedException e) {}
+    	}
+    	
+    	Collection<ReadWriteLock> locks = this.fileLocks.values();
+    	
+    	for(ReadWriteLock lock : locks){
+    		lock.interrupt();
+    	}
     	
     	this.stopped(null);
     }
@@ -148,7 +166,6 @@ public class NamingServer implements Service, Registration
     				try {
 						fileLocks.get(lockPaths[i]).lockWrite();
 						
-						
 					
     				} catch (InterruptedException e) {
 						// TODO Auto-generated catch block
@@ -178,27 +195,20 @@ public class NamingServer implements Service, Registration
     	}
 
     	if(!this.directoryStructure.containsKey(path) && fileLocks.get(path).getTotalReadRequests() >= 20 && exclusive == false) {
-			Set<Storage> storageLocations = this.storageMap.get(path);
-			Set<Storage> storageServers = new HashSet<Storage>(this.registeredStorageServers.keySet());
-			storageServers.removeAll(storageLocations);
-			
-			Storage replicationTarget = getRandomElementFromSet(storageServers);
-			
-			if(replicationTarget != null){
-				Command replicationTargetCommand = this.registeredStorageServers.get(replicationTarget);
-				boolean result = false;
-				try{
-					result = replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
-				} catch (Exception e){}
-				
-				if (result == true){
-					storageLocations.add(replicationTarget);
-					this.fileLocks.get(path).resetReadCount();
-				}
-				
-			}
-			
-		}
+    		Set<Storage> storageLocations = this.storageMap.get(path);
+    		Set<Storage> storageServers = new HashSet<Storage>(this.registeredStorageServers.keySet());
+    		storageServers.removeAll(storageLocations);
+
+    		Storage replicationTarget = getRandomElementFromSet(storageServers);
+
+    		if(replicationTarget != null){
+    			Command replicationTargetCommand = this.registeredStorageServers.get(replicationTarget);
+
+    			ReplicateThread r = new ReplicateThread(path, replicationTargetCommand, storageLocations, this.fileLocks, replicationTarget);
+    			(new Thread(r)).start();
+    		}
+
+    	}
     	
     	if(!path.isRoot() && !this.directoryStructure.containsKey(path) && this.storageMap.get(path).size()>1 && exclusive == true){
     		Set<Storage> storageLocations = this.storageMap.get(path);    		
@@ -212,16 +222,10 @@ public class NamingServer implements Service, Registration
 					commandStub.delete(path);
 	    			storageLocations.remove(storageArray[i]);
 				} catch (RMIException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-    			
-    		}
-    		
-    		
+					throw new IllegalStateException();
+				}	
+    		}	
     	}
-    	
-    	
     }
 
     @Override
@@ -445,7 +449,13 @@ public class NamingServer implements Service, Registration
 				storageList.add(client_stub);
     			this.storageMap.put(p, storageList);
     			
-    			updateDirectoryStructure(p);
+    			try{
+    				this.fileLocks.get(new Path()).lockWrite();
+    				updateDirectoryStructure(p);
+    				this.fileLocks.get(new Path()).unlockWrite();
+    			} catch (InterruptedException e) {
+    				e.printStackTrace();
+    			}
     			
     		}
     	}
@@ -489,7 +499,7 @@ public class NamingServer implements Service, Registration
     	
     	Object[] array = new Object[set.size()];
     	set.toArray(array);
-    	
+
     	return (T)array[index];
     }
     
