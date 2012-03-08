@@ -5,15 +5,15 @@ public class ReadWriteLock {
 	  private volatile boolean isWriteLocked = false;
 	  private volatile int writeRequests = 0;
 	  private volatile int totalReadRequests = 0;
-	  private volatile boolean isStopped = false; 
+	  private volatile boolean stopped = false; 
 	  
 	  public synchronized void interrupt() {
-		  this.isStopped = true;
+		  this.stopped = true;
 		  this.notifyAll();
 	  }
 
 	  public synchronized void lockRead() throws InterruptedException {
-		  while(!isStopped && (isWriteLocked || writeRequests > 0)){
+		  while(!stopped && (isWriteLocked || writeRequests > 0)){
 			  wait();
 		  }
 		  readLocksOut++;
@@ -28,7 +28,7 @@ public class ReadWriteLock {
 	  public synchronized void lockWrite() throws InterruptedException {
 	    writeRequests++;
 
-	    while(!isStopped && (readLocksOut > 0 || isWriteLocked)){
+	    while(!stopped && (readLocksOut > 0 || isWriteLocked)){
 	      wait();
 	    }
 	    writeRequests--;
@@ -60,4 +60,7 @@ public class ReadWriteLock {
 		  totalReadRequests = 0;
 	  }
 	  
+	  public synchronized boolean isStopped(){
+		  return this.stopped;
+	  }
 }

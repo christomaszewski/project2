@@ -44,10 +44,12 @@ public class StorageServer implements Storage, Command
         }
         this.root = root;
         InetSocketAddress storageAddr = new InetSocketAddress(client_port);
-        this.storageSkeleton = new GracefulSkeleton<Storage>(Storage.class, this, storageAddr);
+        this.storageSkeleton = 
+        		new GracefulSkeleton<Storage>(Storage.class, this, storageAddr);
         
         InetSocketAddress commandAddr = new InetSocketAddress(command_port);
-        this.commandSkeleton = new GracefulSkeleton<Command>(Command.class, this, commandAddr);
+        this.commandSkeleton = 
+        		new GracefulSkeleton<Command>(Command.class, this, commandAddr);
     }
 
     /** Creats a storage server, given a directory on the local filesystem.
@@ -92,11 +94,14 @@ public class StorageServer implements Storage, Command
     	this.commandSkeleton.start();
     	this.storageSkeleton.start();
     	
-        Storage storageStub = Stub.create(Storage.class, this.storageSkeleton, hostname);
+        Storage storageStub = 
+        		Stub.create(Storage.class, this.storageSkeleton, hostname);
         
-        Command commandStub = Stub.create(Command.class, this.commandSkeleton, hostname);
+        Command commandStub = 
+        		Stub.create(Command.class, this.commandSkeleton, hostname);
         
-    	Path[] dupList = naming_server.register(storageStub, commandStub, Path.list(this.root));
+    	Path[] dupList = 
+    	naming_server.register(storageStub, commandStub, Path.list(this.root));
     	
     	for (Path p : dupList){
     		this.delete(p);
@@ -192,6 +197,7 @@ public class StorageServer implements Storage, Command
     	RandomAccessFile reader = new RandomAccessFile(f, "r");
     	reader.seek(offset);
     	reader.read(data, 0, length);
+    	reader.close();
     	
     	return data;
     }
@@ -272,6 +278,8 @@ public class StorageServer implements Storage, Command
     public synchronized boolean copy(Path file, Storage server)
         throws RMIException, FileNotFoundException, IOException
     {
+    	//FileNotFoundException will be thrown is file is not found on remote
+    	//server or it is a directory
     	long size = server.size(file);    	
     	
     	this.delete(file.toFile(this.root));
@@ -286,7 +294,8 @@ public class StorageServer implements Storage, Command
     	long bytesLeft = size;
     	boolean writeSuccess = true;
     	while(bytesLeft > 0){
-    		int bytesWritten = bytesLeft > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)(bytesLeft % Integer.MAX_VALUE);
+    		int bytesWritten = bytesLeft > Integer.MAX_VALUE ? 
+    				Integer.MAX_VALUE : (int)(bytesLeft % Integer.MAX_VALUE);
     		byte[] data = server.read(file, offset, bytesWritten);
         	this.write(file, offset, data);
         	byte[] localData = this.read(file, offset, bytesWritten);

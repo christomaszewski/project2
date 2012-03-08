@@ -47,7 +47,10 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     {
     	this(path.toString());
     	
-    	if (component.equals("")||component.contains(":")||component.contains("/")){
+    	if (component.equals("")||
+    		component.contains(":")||
+    		component.contains("/")){
+    		
     		throw new IllegalArgumentException();
     	}
     	this.components.add(component);
@@ -149,7 +152,7 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
      */
     public Path parent()
     {
-    	if (this.components.isEmpty()){
+    	if (this.isRoot()){
     		throw new IllegalArgumentException();
     	} else {
     		String last = this.components.remove(this.components.size()-1);
@@ -167,7 +170,7 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
      */
     public String last()
     {
-    	if (this.components.isEmpty()){
+    	if (this.isRoot()){
     		throw new IllegalArgumentException();
     	} else {
     		return this.components.get(this.components.size()-1);
@@ -190,15 +193,16 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     		return true;
     	}
     	
-    	int pathLength = this.components.size();
+    	int localPathLength = this.components.size();
+    	int otherPathLength = other.getNumberOfComponents();
     	Path localPath = this;
     	String otherPath = other.toString();
-    	while(pathLength > 0){
+    	while(localPathLength >= otherPathLength){
     		if (otherPath.equals(localPath.toString())){
     			return true;
     		} else {
     			localPath = localPath.parent();
-    			pathLength--;
+    			localPathLength--;
     		}
     	}
     	return false;

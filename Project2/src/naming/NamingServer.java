@@ -8,6 +8,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import rmi.GracefulSkeleton;
 import rmi.RMIException;
@@ -57,6 +59,7 @@ public class NamingServer implements Service, Registration
     private ConcurrentHashMap<Storage, Command> registeredStorageServers;
     private ConcurrentHashMap<Path, Set<Path>> directoryStructure;
     private ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
+    private ExecutorService replicator;
 
 	/** Creates the naming server object.
 
@@ -67,15 +70,22 @@ public class NamingServer implements Service, Registration
     {    	
     	this.storageMap = new ConcurrentHashMap<Path, Set<Storage>>();
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
-    	this.registeredStorageServers = new ConcurrentHashMap<Storage, Command>();
+    	this.registeredStorageServers=new ConcurrentHashMap<Storage, Command>();
     	this.fileLocks = new ConcurrentHashMap<Path, ReadWriteLock>();
     	this.fileLocks.put(new Path(), new ReadWriteLock());
+    	this.replicator = Executors.newCachedThreadPool();
     	
-    	InetSocketAddress serviceAddr = new InetSocketAddress(NamingStubs.SERVICE_PORT);
-		this.serviceSkeleton = new GracefulSkeleton<Service>(Service.class, this, serviceAddr);
+    	InetSocketAddress serviceAddr = 
+    			new InetSocketAddress(NamingStubs.SERVICE_PORT);
+		
+    	this.serviceSkeleton = 
+				new GracefulSkeleton<Service>(Service.class, this, serviceAddr);
 
-		InetSocketAddress regAddr = new InetSocketAddress(NamingStubs.REGISTRATION_PORT);
-		this.registrationSkeleton = new GracefulSkeleton<Registration>(Registration.class, this, regAddr);
+		InetSocketAddress regAddr = 
+				new InetSocketAddress(NamingStubs.REGISTRATION_PORT);
+		
+		this.registrationSkeleton = 
+		new GracefulSkeleton<Registration>(Registration.class, this, regAddr);
     }
 
     /** Starts the naming server.
@@ -106,6 +116,8 @@ public class NamingServer implements Service, Registration
      */
     public void stop()
     {
+    	this.replicator.shutdown();
+    	
     	this.serviceSkeleton.stop();
     	synchronized(this.serviceSkeleton){
 	    	try {
@@ -146,7 +158,6 @@ public class NamingServer implements Service, Registration
     @Override
     public void lock(Path path, boolean exclusive) throws FileNotFoundException
     {
-    	
     	if(path == null) {
     		throw new NullPointerException();
     	}
@@ -163,60 +174,66 @@ public class NamingServer implements Service, Registration
     		
     		if(i == lockPaths.length - 1) {
     			if(exclusive == true) {
+    				if(this.fileLocks.get(lockPaths[i]).isStopped()){
+    					throw new IllegalStateException();
+    				}
     				try {
 						fileLocks.get(lockPaths[i]).lockWrite();
-						
 					
     				} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+    					throw new IllegalStateException();
 					}
     			}
     			else {
     				try {
 						fileLocks.get(lockPaths[i]).lockRead();
 					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						throw new IllegalStateException();
 					}
-    				
-    				
-    				
     			}
     		}
     		else {
     			try {
 					fileLocks.get(lockPaths[i]).lockRead();
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+					throw new IllegalStateException();
 				}
     		}
     	}
 
-    	if(!this.directoryStructure.containsKey(path) && fileLocks.get(path).getTotalReadRequests() >= 20 && exclusive == false) {
+    	if(!this.directoryStructure.containsKey(path) && 
+    		fileLocks.get(path).getTotalReadRequests() >= 20 && 
+    		exclusive == false) {
+    		
     		Set<Storage> storageLocations = this.storageMap.get(path);
-    		Set<Storage> storageServers = new HashSet<Storage>(this.registeredStorageServers.keySet());
+    		Set<Storage> storageServers = 
+    			new HashSet<Storage>(this.registeredStorageServers.keySet());
     		storageServers.removeAll(storageLocations);
 
     		Storage replicationTarget = getRandomElementFromSet(storageServers);
 
     		if(replicationTarget != null){
-    			Command replicationTargetCommand = this.registeredStorageServers.get(replicationTarget);
+    			Command replicationTargetCommand =
+    					this.registeredStorageServers.get(replicationTarget);
 
-    			ReplicateThread r = new ReplicateThread(path, replicationTargetCommand, storageLocations, this.fileLocks, replicationTarget);
-    			(new Thread(r)).start();
+    			ReplicateThread r = 
+    				new ReplicateThread(path, replicationTargetCommand, 
+    					storageLocations, this.fileLocks, replicationTarget);
+    			this.replicator.execute(r);
     		}
 
     	}
     	
-    	if(!path.isRoot() && !this.directoryStructure.containsKey(path) && this.storageMap.get(path).size()>1 && exclusive == true){
+    	if(!path.isRoot() && !this.directoryStructure.containsKey(path) && 
+    			this.storageMap.get(path).size()>1 && exclusive == true){
+    		
     		Set<Storage> storageLocations = this.storageMap.get(path);    		
     		Storage[] storageArray = new Storage[storageLocations.size()];
     		storageLocations.toArray(storageArray);
     		
     		for (int i = 1; i<storageArray.length; i++){
-    			Command commandStub = this.registeredStorageServers.get(storageArray[i]);
+    			Command commandStub = 
+    					this.registeredStorageServers.get(storageArray[i]);
 
     			try {
 					commandStub.delete(path);
@@ -243,26 +260,18 @@ public class NamingServer implements Service, Registration
    
     	
     	for(int i = 0; i < lockPaths.length; i++) {
-    		
-    		//System.out.println("\n" + lockPaths[i].toString() + "\n");
-    		
+        		
     		if(i == lockPaths.length - 1) {
     			if(exclusive == true) {
     				try {
 						fileLocks.get(lockPaths[i]).unlockWrite();
 					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						throw new IllegalStateException();
 					}
     			} else {
-    				
-    				
-    				
     				fileLocks.get(lockPaths[i]).unlockRead();
-    			
     			}
-    		}
-    		else {
+    		} else {
     			fileLocks.get(lockPaths[i]).unlockRead();
     		}
     		
@@ -315,7 +324,7 @@ public class NamingServer implements Service, Registration
     public boolean createFile(Path file)
         throws RMIException, FileNotFoundException
     {
-        if(!file.isRoot() && !this.directoryStructure.containsKey(file.parent())){
+        if(!file.isRoot()&&!this.directoryStructure.containsKey(file.parent())){
         	throw new FileNotFoundException();
         }
         
@@ -323,19 +332,22 @@ public class NamingServer implements Service, Registration
         	throw new IllegalStateException();
         }
         
-        if (!file.isRoot() && !this.directoryStructure.containsKey(file) && !this.storageMap.containsKey(file)){
-        	Collection<Storage> servers = this.registeredStorageServers.keySet();
-        	Storage[] storageServers = new Storage[servers.size()];
-        	servers.toArray(storageServers);
-        	int index  = (int)(storageServers.length*Math.random());
-        	Storage chosenStorageStub = storageServers[index];
-        	Command chosenCommandStub = this.registeredStorageServers.get(chosenStorageStub);
+        if (!file.isRoot() && !this.directoryStructure.containsKey(file) && 
+        		!this.storageMap.containsKey(file)){
+        	
+        	Storage chosenStorageStub = 
+        this.getRandomElementFromSet(this.registeredStorageServers.keySet());
+        	
+        	Command chosenCommandStub = 
+        			this.registeredStorageServers.get(chosenStorageStub);
         	
         	boolean result = chosenCommandStub.create(file);
         	
         	if(result){
         		updateDirectoryStructure(file);
-        		Set<Storage> storageList = Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
+        		Set<Storage> storageList = 
+        Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
+        		
 				storageList.add(chosenStorageStub);
         		this.storageMap.put(file, storageList);
         	}
@@ -349,13 +361,19 @@ public class NamingServer implements Service, Registration
     @Override
     public boolean createDirectory(Path directory) throws FileNotFoundException
     {
-    	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory.parent())){
+    	if (!directory.isRoot() && 
+    			!this.directoryStructure.containsKey(directory.parent())){
     		throw new FileNotFoundException();
     	}
     	
-    	if (!directory.isRoot() && !this.directoryStructure.containsKey(directory) && !this.storageMap.containsKey(directory)){
+    	if (!directory.isRoot() && 
+    		!this.directoryStructure.containsKey(directory) && 
+    		!this.storageMap.containsKey(directory)){
+    		
     		updateDirectoryStructure(directory);
-    		Set<Path> directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+    		Set<Path> directoryContents = 
+    		Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+    		
     		this.directoryStructure.put(directory, directoryContents);
     		return true;
     	}
@@ -364,41 +382,38 @@ public class NamingServer implements Service, Registration
     }
 
     @Override
-    public boolean delete(Path path) throws FileNotFoundException
+    public boolean delete(Path path) throws FileNotFoundException, RMIException
     {
     	if(path == null) {
     		throw new NullPointerException();
-    	}
-    	else if (!this.fileLocks.containsKey(path)) {
-
+    	} else if (path.isRoot()){
+    		return false;
+    	}else if (!this.fileLocks.containsKey(path) || 
+    			!this.fileLocks.containsKey(path.parent())) {
     		throw new FileNotFoundException(); 
-    	}
+    	} 
+    	
         boolean deleted = false;
         
         Set<Storage> storageLocations = this.registeredStorageServers.keySet();
         for (Storage s : storageLocations){
         	Command commandStub = this.registeredStorageServers.get(s);
-        	try {
-				deleted = commandStub.delete(path) || deleted;
-			} catch (RMIException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+			deleted = commandStub.delete(path) || deleted;
         }
         
-        deleteAll(path);
+        deleteAllReferences(path);
     	this.directoryStructure.get(path.parent()).remove(path);
 
         return deleted;
     }
     
-    private void deleteAll(Path path){
+    private void deleteAllReferences(Path path){
     	if (!this.directoryStructure.containsKey(path)){
         	this.storageMap.remove(path);
         } else {
         	Set<Path> directoryContents = this.directoryStructure.get(path);
         	for (Path p : directoryContents){
-        		deleteAll(p);
+        		deleteAllReferences(p);
         	}
         	this.directoryStructure.remove(path);
         }
@@ -445,7 +460,8 @@ public class NamingServer implements Service, Registration
     		} else if (this.storageMap.containsKey(p)){
     			filesToDelete.add(p);
     		} else {
-    			Set<Storage> storageList = Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
+    			Set<Storage> storageList = 
+    	Collections.newSetFromMap(new ConcurrentHashMap<Storage, Boolean>());
 				storageList.add(client_stub);
     			this.storageMap.put(p, storageList);
     			
@@ -482,7 +498,8 @@ public class NamingServer implements Service, Registration
 			if(this.directoryStructure.containsKey(parent)){
 				this.directoryStructure.get(parent).add(child);
 			} else {
-				Set<Path> directoryContents = Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+				Set<Path> directoryContents = 
+			Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
 				directoryContents.add(child);
 				this.directoryStructure.put(parent, directoryContents);
 			}

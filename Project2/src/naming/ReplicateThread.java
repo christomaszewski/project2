@@ -16,7 +16,10 @@ public class ReplicateThread implements Runnable {
 	private Storage replicationTarget;
 	
 	
-	public ReplicateThread(Path path, Command replicationTargetCommand, Set<Storage> storageLocations, ConcurrentHashMap<Path, ReadWriteLock> fileLocks, Storage replicationTarget) {
+	public ReplicateThread(Path path, Command replicationTargetCommand, 
+Set<Storage> storageLocations, ConcurrentHashMap<Path, ReadWriteLock> fileLocks, 
+	Storage replicationTarget) {
+		
 		this.path = path;
 		this.replicationTargetCommand = replicationTargetCommand;
 		this.storageLocations = storageLocations;
@@ -28,7 +31,8 @@ public class ReplicateThread implements Runnable {
 	public void run() {
 		boolean result = false;
 		try{
-			result = replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
+			result = 
+replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
 		} catch (Exception e){}
 
 		if (result == true){
@@ -49,7 +53,6 @@ public class ReplicateThread implements Runnable {
     	
     	return (T)array[index];
     }
-
 
 }
 
