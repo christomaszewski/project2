@@ -19,6 +19,13 @@ import storage.Storage;
 
 import common.Path;
 
+/******************************************************************************
+ * 
+ * Authors: Christopher Tomaszewski (CKT) & Dinesh Palanisamy (DINESHP) 
+ * 
+ ******************************************************************************/
+
+
 /** Naming server.
 
     <p>
@@ -53,13 +60,22 @@ import common.Path;
  */
 public class NamingServer implements Service, Registration
 {
-    private Skeleton<Service> serviceSkeleton;
-    private Skeleton<Registration> registrationSkeleton;
-    private ConcurrentHashMap<Path, Set<Storage>> storageMap;
-    private ConcurrentHashMap<Storage, Command> registeredStorageServers;
-    private ConcurrentHashMap<Path, Set<Path>> directoryStructure;
-    private ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
-    private ExecutorService replicator;
+    /* Skeleton for service method calls */
+	private Skeleton<Service> serviceSkeleton;
+    /* Skeleton for registration method calls */
+	private Skeleton<Registration> registrationSkeleton;
+    /* HashMap mapping path object to set containing all storage servers (stubs)
+	that contain it */
+	private ConcurrentHashMap<Path, Set<Storage>> storageMap;
+    /* Maps a storage server (stub) to its command stub */
+	private ConcurrentHashMap<Storage, Command> registeredStorageServers;
+    /* Directory structure which maps all directory paths to the files and 
+	subdirectories that are in them */
+	private ConcurrentHashMap<Path, Set<Path>> directoryStructure;
+    /* Maps a path to a lock */
+	private ConcurrentHashMap<Path, ReadWriteLock> fileLocks;
+    /* Thread which does replication */
+	private ExecutorService replicator;
 
 	/** Creates the naming server object.
 
@@ -68,14 +84,16 @@ public class NamingServer implements Service, Registration
      */
     public NamingServer()
     {    	
-    	this.storageMap = new ConcurrentHashMap<Path, Set<Storage>>();
+    	/* Initialize all data structures */
+		this.storageMap = new ConcurrentHashMap<Path, Set<Storage>>();
     	this.directoryStructure = new ConcurrentHashMap<Path, Set<Path>>();
     	this.registeredStorageServers=new ConcurrentHashMap<Storage, Command>();
     	this.fileLocks = new ConcurrentHashMap<Path, ReadWriteLock>();
     	this.fileLocks.put(new Path(), new ReadWriteLock());
     	this.replicator = Executors.newCachedThreadPool();
     	
-    	InetSocketAddress serviceAddr = 
+		/* Listen on well known ports and start service and registration skeletons */
+		InetSocketAddress serviceAddr = 
     			new InetSocketAddress(NamingStubs.SERVICE_PORT);
 		
     	this.serviceSkeleton = 
@@ -119,7 +137,8 @@ public class NamingServer implements Service, Registration
     	this.replicator.shutdown();
     	
     	this.serviceSkeleton.stop();
-    	synchronized(this.serviceSkeleton){
+    	/* Wait until listening threads terminates and calls stop */
+		synchronized(this.serviceSkeleton){
 	    	try {
 				this.serviceSkeleton.wait();
 			} catch (InterruptedException e) {}
@@ -134,7 +153,9 @@ public class NamingServer implements Service, Registration
     	
     	Collection<ReadWriteLock> locks = this.fileLocks.values();
     	
-    	for(ReadWriteLock lock : locks){
+    	/* Interrupt all locks but only after waiting for listening thread in 
+		 * skeletons to terminate */
+		for(ReadWriteLock lock : locks){
     		lock.interrupt();
     	}
     	
@@ -166,14 +187,15 @@ public class NamingServer implements Service, Registration
     		throw new FileNotFoundException(); 
     	}
     	
-    	Path[] lockPaths = path.getSubPaths();
+    	/* Acquire all subpaths needed for locking */
+		Path[] lockPaths = path.getSubPaths();
     	
     	for(int i = 0; i < lockPaths.length; i++) {
     		
-    		//System.out.println("\n\n" + lockPaths[0].toString() + "\n\n");
-    		
-    		if(i == lockPaths.length - 1) {
-    			if(exclusive == true) {
+    		/* Lock all subpaths in a downward order */
+			if(i == lockPaths.length - 1) {
+    			/* Check for read or write lock */
+				if(exclusive == true) {
     				if(this.fileLocks.get(lockPaths[i]).isStopped()){
     					throw new IllegalStateException();
     				}
@@ -201,7 +223,8 @@ public class NamingServer implements Service, Registration
     		}
     	}
 
-    	if(!this.directoryStructure.containsKey(path) && 
+    	/* Replicate if read is called >= 20 times */
+		if(!this.directoryStructure.containsKey(path) && 
     		fileLocks.get(path).getTotalReadRequests() >= 20 && 
     		exclusive == false) {
     		
@@ -216,7 +239,9 @@ public class NamingServer implements Service, Registration
     			Command replicationTargetCommand =
     					this.registeredStorageServers.get(replicationTarget);
 
-    			ReplicateThread r = 
+    			/* spawn new thread to perform asynchronous replication to ensure
+				 * locking doesn't wait for replication to finish */
+				ReplicateThread r = 
     				new ReplicateThread(path, replicationTargetCommand, 
     					storageLocations, this.fileLocks, replicationTarget);
     			this.replicator.execute(r);
@@ -224,7 +249,9 @@ public class NamingServer implements Service, Registration
 
     	}
     	
-    	if(!path.isRoot() && !this.directoryStructure.containsKey(path) && 
+    	
+		/* If write lock is acquired, pick one copy to keep and delete other copies */
+		if(!path.isRoot() && !this.directoryStructure.containsKey(path) && 
     			this.storageMap.get(path).size()>1 && exclusive == true){
     		
     		Set<Storage> storageLocations = this.storageMap.get(path);    		
@@ -258,7 +285,8 @@ public class NamingServer implements Service, Registration
     	Path[] lockPaths = path.getSubPaths();
        	
    
-    	
+    	/* Release all neccessary locks included all the parent directory locks 
+    	 * in a downward order */
     	for(int i = 0; i < lockPaths.length; i++) {
         		
     		if(i == lockPaths.length - 1) {
@@ -366,6 +394,7 @@ public class NamingServer implements Service, Registration
     		throw new FileNotFoundException();
     	}
     	
+    	/* insert directory path into directory structure */
     	if (!directory.isRoot() && 
     		!this.directoryStructure.containsKey(directory) && 
     		!this.storageMap.containsKey(directory)){
@@ -395,12 +424,14 @@ public class NamingServer implements Service, Registration
     	
         boolean deleted = false;
         
+        /* Delete file from all storage locations */
         Set<Storage> storageLocations = this.registeredStorageServers.keySet();
         for (Storage s : storageLocations){
         	Command commandStub = this.registeredStorageServers.get(s);
 			deleted = commandStub.delete(path) || deleted;
         }
         
+        /* Fix directory structures */
         deleteAllReferences(path);
     	this.directoryStructure.get(path.parent()).remove(path);
 
@@ -408,6 +439,7 @@ public class NamingServer implements Service, Registration
     }
     
     private void deleteAllReferences(Path path){
+    	/* Recursively delete from file structure */ 
     	if (!this.directoryStructure.containsKey(path)){
         	this.storageMap.remove(path);
         } else {
@@ -418,6 +450,7 @@ public class NamingServer implements Service, Registration
         	this.directoryStructure.remove(path);
         }
     	
+    	/* Delete lock associated with path */
     	this.fileLocks.remove(path);
     }
 
@@ -432,6 +465,8 @@ public class NamingServer implements Service, Registration
     		throw new FileNotFoundException();
     	}
         
+    	/* Return storage stub for path */
+    	
     	return getRandomElementFromSet(this.storageMap.get(file));
     	
     }
@@ -482,6 +517,7 @@ public class NamingServer implements Service, Registration
     	return dupList;
     }
     
+    /* Recursively add directory and its subdirectories mapping to subdirectories and files */
     private void updateDirectoryStructure(Path p){
     	Path parent = p;
 		Path child = p;
@@ -507,6 +543,7 @@ public class NamingServer implements Service, Registration
 		}
     }
     
+    /* Returns a random element from a given set */
     private <T> T getRandomElementFromSet(Set<T> set){
     	if(set.isEmpty()){
     		return null;

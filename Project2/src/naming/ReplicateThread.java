@@ -1,5 +1,11 @@
 package naming;
 
+/******************************************************************************
+ * 
+ * Authors: Christopher Tomaszewski (CKT) & Dinesh Palanisamy (DINESHP) 
+ * 
+ ******************************************************************************/
+
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,11 +21,10 @@ public class ReplicateThread implements Runnable {
 	private ConcurrentHashMap<Path, ReadWriteLock> fileLocks; 
 	private Storage replicationTarget;
 	
-	
-	public ReplicateThread(Path path, Command replicationTargetCommand, 
-Set<Storage> storageLocations, ConcurrentHashMap<Path, ReadWriteLock> fileLocks, 
+	/* Initializes objects needed to replicate and update data structures */
+	public ReplicateThread(Path path, Command replicationTargetCommand, Set<Storage> 
+	storageLocations, ConcurrentHashMap<Path, ReadWriteLock> fileLocks, 
 	Storage replicationTarget) {
-		
 		this.path = path;
 		this.replicationTargetCommand = replicationTargetCommand;
 		this.storageLocations = storageLocations;
@@ -28,20 +33,25 @@ Set<Storage> storageLocations, ConcurrentHashMap<Path, ReadWriteLock> fileLocks,
 	}
 
 	
+	/* Calls copy on a command stub of a server and updates the hashmap of path 
+	 * to storage stubs by adding new storage stub */
 	public void run() {
 		boolean result = false;
 		try{
-			result = 
-replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
+			/* Copies to target server given a storage stub containing a copy */
+			result = replicationTargetCommand.copy(path, 
+					getRandomElementFromSet(storageLocations));
 		} catch (Exception e){}
 
 		if (result == true){
+			/* Adds new storage stub to the path to storage stubs HashMap */
 			storageLocations.add(replicationTarget);
 			this.fileLocks.get(path).resetReadCount();
 		}
 	}
 
-    private <T> T getRandomElementFromSet(Set<T> set){
+    /* Helper method that returns a random element from a given set */
+	private <T> T getRandomElementFromSet(Set<T> set){
     	if(set.isEmpty()){
     		return null;
     	}
@@ -53,6 +63,7 @@ replicationTargetCommand.copy(path, getRandomElementFromSet(storageLocations));
     	
     	return (T)array[index];
     }
+
 
 }
 

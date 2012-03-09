@@ -1,5 +1,11 @@
 package common;
 
+/******************************************************************************
+ * 
+ * Authors: Christopher Tomaszewski (CKT) & Dinesh Palanisamy (DINESHP) 
+ * 
+ ******************************************************************************/
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.Serializable;
@@ -76,6 +82,7 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     	
     	this.components = new CopyOnWriteArrayList<String>();
     	
+    	//Parse string into path components
         StringTokenizer strtok = new StringTokenizer(path, "/");
         while(strtok.hasMoreTokens()){
         	this.components.add(strtok.nextToken());
@@ -120,6 +127,8 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
         ArrayList<Path> pathList = new ArrayList<Path>();
         
         for (File f : directory.listFiles()){
+        	
+        	//If f is a directory, recursively list its contents
         	if (f.isDirectory()){
         		Path[] directoryListing = Path.list(f);
         		for (Path p : directoryListing){
@@ -196,9 +205,10 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     	int localPathLength = this.components.size();
     	int otherPathLength = other.getNumberOfComponents();
     	Path localPath = this;
-    	String otherPath = other.toString();
+    	
+    	//Stop when localPath has less components than other
     	while(localPathLength >= otherPathLength){
-    		if (otherPath.equals(localPath.toString())){
+    		if (other.equals(localPath)){
     			return true;
     		} else {
     			localPath = localPath.parent();
@@ -258,11 +268,22 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     @Override
     public int compareTo(Path other)
     {
+    	//In our locking scheme we lock downwards from the root directory
+    	//Therefore, we want to ensure files toward the top of the directory,
+    	//structure, i.e. the root node, get locked first. We can ensure this
+    	//by ordering Paths by the number of components they have. The root node
+    	//has the highest locking priority and accordingly, it is the only path
+    	//with 0 components. Paths with the same number of components point
+    	//to files at the same level in the directory tree and so they do not 
+    	//depend on one another and can be locked alphabetically.
+    	
     	int otherSize = other.getNumberOfComponents();
     	
     	if(this.components.size() != otherSize){
+    		//paths on different levels, use number of components
     		return this.components.size()-otherSize;
     	} else {
+    		//paths on same level of directory tree so use alphabetical ordering
     		return this.toString().compareTo(other.toString());
     	}
     }
@@ -317,9 +338,11 @@ public class Path implements Iterable<String>, Comparable<Path>, Serializable
     }
     
     public String getFileName(){
+    	//return last component
     	return this.components.get(this.components.size()-1);
     }
     
+    //return a list of all possible subpaths for locking purposes
     public Path[] getSubPaths() {
     		
     	if (this.isRoot()){

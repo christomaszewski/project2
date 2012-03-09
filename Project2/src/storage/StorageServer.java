@@ -1,5 +1,11 @@
 package storage;
 
+/******************************************************************************
+ * 
+ * Authors: Christopher Tomaszewski (CKT) & Dinesh Palanisamy (DINESHP) 
+ * 
+ ******************************************************************************/
+
 import java.io.*;
 import java.net.*;
 import java.util.Arrays;
@@ -44,10 +50,13 @@ public class StorageServer implements Storage, Command
         }
         this.root = root;
         InetSocketAddress storageAddr = new InetSocketAddress(client_port);
+        
+        //Create GracefulSkeleton which notifies StorageServer when stopped
         this.storageSkeleton = 
         		new GracefulSkeleton<Storage>(Storage.class, this, storageAddr);
         
         InetSocketAddress commandAddr = new InetSocketAddress(command_port);
+      //Create GracefulSkeleton which notifies StorageServer when stopped
         this.commandSkeleton = 
         		new GracefulSkeleton<Command>(Command.class, this, commandAddr);
     }
@@ -91,22 +100,27 @@ public class StorageServer implements Storage, Command
     public synchronized void start(String hostname, Registration naming_server)
         throws RMIException, UnknownHostException, FileNotFoundException
     {
+    	//Start RMI skeletons
     	this.commandSkeleton.start();
     	this.storageSkeleton.start();
     	
+    	//Create Stubs for remote access
         Storage storageStub = 
         		Stub.create(Storage.class, this.storageSkeleton, hostname);
         
         Command commandStub = 
         		Stub.create(Command.class, this.commandSkeleton, hostname);
         
+        //Register with naming server by sending stubs and path list
     	Path[] dupList = 
     	naming_server.register(storageStub, commandStub, Path.list(this.root));
     	
+    	//Delete any files the naming server says are already stored elsewhere
     	for (Path p : dupList){
     		this.delete(p);
     	}
     	
+    	//Delete empty directories
     	pruneEmptyDirectories(this.root);
     }
     
@@ -117,6 +131,7 @@ public class StorageServer implements Storage, Command
     	
     	for (File f : directoryListing){
     		if (f.isDirectory()){
+    			//recursively delete empty directories
     			safeToDelete = safeToDelete && pruneEmptyDirectories(f);
     		} else {
     			safeToDelete = false;
@@ -140,6 +155,7 @@ public class StorageServer implements Storage, Command
     	this.commandSkeleton.stop();
     	synchronized(this.commandSkeleton){
     		try {
+    			//wait for notify from GracefulSkeleton stopped method
     			this.commandSkeleton.wait();
     		} catch (InterruptedException e) {}
     	}
@@ -149,6 +165,7 @@ public class StorageServer implements Storage, Command
     	this.storageSkeleton.stop();
     	synchronized(this.storageSkeleton){
 	    	try {
+	    		//wait for notify from GracefulSkeleton stopped method
 				this.storageSkeleton.wait();
 			} catch (InterruptedException e) {}
     	}
@@ -175,6 +192,7 @@ public class StorageServer implements Storage, Command
     		throw new FileNotFoundException();
     	}
     	
+    	//Get and return the size of file
     	long size = f.length();
     	return size;
     }
@@ -189,6 +207,7 @@ public class StorageServer implements Storage, Command
     		throw new FileNotFoundException();
     	}
     	
+    	//Handle bad offset and length parameters
     	if(offset + length > f.length() || offset < 0 || length < 0) {
     		throw new IndexOutOfBoundsException();
     	}
@@ -234,6 +253,7 @@ public class StorageServer implements Storage, Command
     	
         File f = file.toFile(this.root);
         
+        //Make parent directories to store file if needed
         Path parent = file.parent();
         if (!parent.toFile(this.root).exists()){
         	parent.toFile(this.root).mkdirs();
@@ -242,6 +262,7 @@ public class StorageServer implements Storage, Command
         try {
 			return f.createNewFile();
 		} catch (IOException e) {
+			//catch exception to make it detectable in Copy
 			this.ioExceptionThrown = true;
 		}
         
@@ -262,6 +283,7 @@ public class StorageServer implements Storage, Command
     	boolean allFilesDeleted = true;
     	if (file.isDirectory()){
     		for (File f : file.listFiles()){
+    			//Recursively delete all files in subdirectories
     			allFilesDeleted = this.delete(f) && allFilesDeleted;
     		}
     		if (allFilesDeleted){
@@ -287,19 +309,25 @@ public class StorageServer implements Storage, Command
     	this.ioExceptionThrown = false;
     	this.create(file);
     	if(this.ioExceptionThrown){
+    		//throw IOException if it was caught during create
     		throw new IOException();
     	}
     	
     	long offset = 0;
     	long bytesLeft = size;
     	boolean writeSuccess = true;
+    	
+    	//Handles writing out large files with size > Integer.MAX_VALUE
     	while(bytesLeft > 0){
     		int bytesWritten = bytesLeft > Integer.MAX_VALUE ? 
     				Integer.MAX_VALUE : (int)(bytesLeft % Integer.MAX_VALUE);
     		byte[] data = server.read(file, offset, bytesWritten);
         	this.write(file, offset, data);
+        	
+        	//Read data back and compare to verify it was successfully written
         	byte[] localData = this.read(file, offset, bytesWritten);
         	writeSuccess = writeSuccess && Arrays.equals(data, localData);
+        	
         	offset += bytesWritten;
         	bytesLeft -= bytesWritten;	
     	}
